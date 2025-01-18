@@ -1,10 +1,13 @@
 // Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-package com.intellij.temporary.gui.block
+package cc.unitmesh.devti.block
 
 import cc.unitmesh.devti.gui.chat.message.ChatRole
 import cc.unitmesh.devti.util.parser.convertMarkdownToHtml
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.temporary.gui.block.MessageBlock
+import com.intellij.temporary.gui.block.MessageBlockTextListener
+import com.intellij.temporary.gui.block.MessageBlockView
 import com.intellij.util.ui.ExtendableHTMLViewFactory
 import com.intellij.util.ui.HTMLEditorKitBuilder
 import com.intellij.xml.util.XmlStringUtil
