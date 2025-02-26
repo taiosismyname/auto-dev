@@ -46,20 +46,31 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
 
+interface SketchProcessListener {
+    fun onBefore() {}
+    fun onAfter() {}
+}
+
 class SketchToolWindow(val project: Project, val editor: Editor?, private val showInput: Boolean = false) :
     SimpleToolWindowPanel(true, true), NullableComponent, Disposable {
     private val chatCodingService = ChatCodingService(ChatActionType.SKETCH, project)
     private var progressBar: CustomProgressBar = CustomProgressBar(this)
-    private var shireInput: AutoDevInputSection = AutoDevInputSection(project, this, showAgent = false)
+    private var inputSection: AutoDevInputSection = AutoDevInputSection(project, this, showAgent = false)
 
     private var myText: String = ""
 
     private var myList = JPanel(VerticalLayout(JBUI.scale(0))).apply {
         this.isOpaque = true
     }
+    private var historyPanel = JPanel(VerticalLayout(JBUI.scale(0))).apply {
+        this.isOpaque = true
+    }
+
     private var isUserScrolling: Boolean = false
 
-    private var userPrompt: JPanel = JPanel(BorderLayout())
+    private var isInterrupted: Boolean = false
+
+    private var systemPrompt: JPanel = JPanel(BorderLayout())
     private var contentPanel = JPanel(BorderLayout())
 
     val header = JButton(AllIcons.Actions.Copy).apply {
@@ -67,7 +78,10 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
 
         addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent?) {
-                val selection = StringSelection(myText)
+                var allText = historyPanel.components.filterIsInstance<LangSketch>().joinToString("\n") { it.getViewText() }
+                allText += myList.components.filterIsInstance<LangSketch>().joinToString("\n") { it.getViewText() }
+
+                val selection = StringSelection(allText)
                 val clipboard = Toolkit.getDefaultToolkit().systemClipboard
                 clipboard.setContents(selection, null)
             }
@@ -75,10 +89,9 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
     }
 
     private var panelContent: DialogPanel = panel {
-        row { cell(userPrompt).fullWidth().fullHeight() }
-        row {
-            cell(header).alignRight()
-        }
+        row { cell(systemPrompt).fullWidth().fullHeight() }
+        row { cell(header).alignRight() }
+        row { cell(historyPanel).fullWidth().fullHeight() }
         row { cell(myList).fullWidth().fullHeight() }
     }
 
@@ -99,6 +112,8 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
 
     private val listener = SketchInputListener(project, chatCodingService, this)
 
+    private val processListeners = mutableListOf<SketchProcessListener>()
+
     init {
         if (showInput) {
             val header = panel {
@@ -109,13 +124,13 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
                         }
                     }
 
-                    actionButton(NewSketchAction()).alignRight()
+                    createActionButton(NewSketchAction()).alignRight()
                 }
             }
 
             header.border = JBUI.Borders.compound(
                 JBUI.Borders.customLine(UIUtil.getBoundsColor(), 0, 0, 1, 0),
-                JBUI.Borders.empty(0, 4, 0, 4)
+                JBUI.Borders.empty(0, 4)
             )
 
             contentPanel.add(header, BorderLayout.NORTH)
@@ -135,18 +150,30 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
         contentPanel.add(progressBar, BorderLayout.SOUTH)
 
         if (showInput) {
-            shireInput.also {
+            inputSection.also {
                 it.border = JBUI.Borders.empty(8)
             }
 
-            shireInput.addListener(listener)
-            contentPanel.add(shireInput, BorderLayout.SOUTH)
+            inputSection.addListener(listener)
+            contentPanel.add(inputSection, BorderLayout.SOUTH)
+
+            addProcessListener(object : SketchProcessListener {
+                override fun onBefore() {
+                    isInterrupted = false
+                    inputSection.showStopButton()
+                }
+
+                override fun onAfter() {
+                    inputSection.showSendButton()
+                }
+            })
         }
 
         setContent(contentPanel)
     }
 
     fun onStart() {
+        beforeRun()
         initializePreAllocatedBlocks(project)
         progressBar.isIndeterminate = true
         progressBar.isVisible = !showInput
@@ -154,6 +181,23 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
 
     fun hiddenProgressBar() {
         progressBar.isVisible = false
+    }
+
+    fun stop() {
+        cancel("Stop")
+        inputSection.showSendButton()
+    }
+
+    fun addProcessListener(processorListener: SketchProcessListener) {
+        processListeners.add(processorListener)
+    }
+
+    fun beforeRun() {
+        processListeners.forEach { it.onBefore() }
+    }
+
+    fun AfterRun() {
+        processListeners.forEach { it.onAfter() }
     }
 
     private val blockViews: MutableList<LangSketch> = mutableListOf()
@@ -171,30 +215,51 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
         chatCodingService.clearSession()
     }
 
-    /**
-     * Todo: add to all component lsit
-     */
     fun addRequestPrompt(text: String) {
         runInEdt {
-            val codeBlockViewer = CodeHighlightSketch(project, text, PlainTextLanguage.INSTANCE).apply {
-                initEditor(text)
+            historyPanel.add(createSingleTextView(text, language = "DevIn"))
+            this.revalidate()
+            this.repaint()
+        }
+    }
+
+
+    fun addSystemPrompt(text: String) {
+        runInEdt {
+            systemPrompt.add(createSingleTextView(text, language = "VTL"))
+            this.revalidate()
+            this.repaint()
+        }
+    }
+
+    fun updateHistoryPanel() {
+        runInEdt {
+            blockViews.filter { it.getViewText().isNotEmpty() }.forEach {
+                historyPanel.add(it.getComponent())
             }
 
-            codeBlockViewer.editorFragment!!.setCollapsed(true)
-            codeBlockViewer.editorFragment!!.updateExpandCollapseLabel()
-
-            val panel = panel {
-                row {
-                    cell(codeBlockViewer).fullWidth()
-                }
-            }
-
-            userPrompt.removeAll()
-            userPrompt.add(panel, BorderLayout.CENTER)
+            blockViews.clear()
+            myList.removeAll()
 
             this.revalidate()
             this.repaint()
         }
+    }
+
+    private fun createSingleTextView(text: String, language: String = "markdown"): DialogPanel {
+        val codeBlockViewer = CodeHighlightSketch(project, text, CodeFence.findLanguage(language)).apply {
+            initEditor(text)
+        }
+
+        codeBlockViewer.editorFragment!!.setCollapsed(true)
+        codeBlockViewer.editorFragment!!.updateExpandCollapseLabel()
+
+        val panel = panel {
+            row {
+                cell(codeBlockViewer).fullWidth()
+            }
+        }
+        return panel
     }
 
     fun onUpdate(text: String) {
@@ -220,7 +285,7 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
                     } else {
                         blockViews[index].apply {
                             updateLanguage(codeFence.language, codeFence.originLanguage)
-                            updateViewText(codeFence.text)
+                            updateViewText(codeFence.text, codeFence.isComplete)
                         }
                     }
                 } else {
@@ -263,14 +328,16 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
         progressBar.isVisible = false
         scrollToBottom()
 
-        if (AutoSketchMode.getInstance(project).isEnable) {
+        AfterRun()
+
+        if (AutoSketchMode.getInstance(project).isEnable && !isInterrupted) {
             AutoSketchMode.getInstance(project).start(text, this@SketchToolWindow.listener)
         }
     }
 
     fun sendInput(text: String) {
-        shireInput.text += "\n" + text
-        shireInput.send()
+        inputSection.text += "\n" + text
+        inputSection.send()
     }
 
     private fun scrollToBottom() {
@@ -294,14 +361,19 @@ class SketchToolWindow(val project: Project, val editor: Editor?, private val sh
 
     override fun isNull(): Boolean = !isVisible
 
-    fun cancel(s: String) = runCatching { handleCancel?.invoke(s) }
+    fun cancel(s: String) = runCatching {
+        handleCancel?.also { handleCancel = null }?.invoke(s)
+        isInterrupted = true
+    }
 
     fun resetSketchSession() {
         chatCodingService.clearSession()
         progressBar.isIndeterminate = false
         progressBar.isVisible = false
-        userPrompt.removeAll()
+        blockViews.clear()
+        systemPrompt.removeAll()
         myList.removeAll()
+        historyPanel.removeAll()
         initializePreAllocatedBlocks(project)
     }
 }
@@ -336,7 +408,12 @@ class CustomProgressBar(private val view: SketchToolWindow) : JPanel(BorderLayou
     }
 }
 
-fun Row.actionButton(action: AnAction, @NonNls actionPlace: String = ActionPlaces.UNKNOWN): Cell<ActionButton> {
-    val component = ActionButton(action, action.templatePresentation.clone(), actionPlace, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE)
+fun Row.createActionButton(action: AnAction, @NonNls actionPlace: String = ActionPlaces.UNKNOWN): Cell<ActionButton> {
+    val component = ActionButton(
+        action,
+        action.templatePresentation.clone(),
+        actionPlace,
+        ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE
+    )
     return cell(component)
 }

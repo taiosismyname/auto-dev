@@ -3,7 +3,7 @@ package cc.unitmesh.devti.intentions.action.task
 import cc.unitmesh.devti.AutoDevBundle
 import cc.unitmesh.devti.AutoDevNotifications
 import cc.unitmesh.devti.agent.CustomAgentExecutor
-import cc.unitmesh.devti.agent.configurable.customAgentSetting
+import cc.unitmesh.devti.settings.customize.customizeSetting
 import cc.unitmesh.devti.agent.model.CustomAgentConfig
 import cc.unitmesh.devti.context.modifier.CodeModifierProvider
 import cc.unitmesh.devti.custom.CustomExtContext
@@ -71,9 +71,7 @@ class TestCodeGenTask(val request: TestCodeGenRequest, displayMessage: String) :
         val creationContext =
             ChatCreationContext(ChatOrigin.Intention, actionType, request.file, listOf(), element = request.element)
 
-        val contextItems: List<ChatContextItem> = runBlocking {
-            return@runBlocking ChatContextProvider.collectChatContextList(request.project, creationContext)
-        }
+        val contextItems: List<ChatContextItem> = ChatContextProvider.collectChatContextList(request.project, creationContext)
 
         testPromptContext.frameworkContext = contextItems.joinToString("\n", transform = ChatContextItem::text)
         ReadAction.compute<Unit, Throwable> {
@@ -218,7 +216,7 @@ class TestCodeGenTask(val request: TestCodeGenRequest, displayMessage: String) :
     }
 
     private fun getCustomAgentTestContext(testPromptContext: TestCodeGenContext): String {
-        if (!project.customAgentSetting.enableCustomRag) return ""
+        if (!project.customizeSetting.enableCustomRag) return ""
 
         val agent = loadTestRagConfig() ?: return ""
 

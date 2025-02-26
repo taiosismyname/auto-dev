@@ -1,6 +1,13 @@
 package cc.unitmesh.devti.sketch.ui.code
 
+import cc.unitmesh.devti.AutoDevNotifications
+import cc.unitmesh.devti.devin.dataprovider.BuiltinCommand
+import cc.unitmesh.devti.provider.BuildSystemProvider
+import cc.unitmesh.devti.provider.RunService
+import cc.unitmesh.devti.sketch.ui.LangSketch
+import cc.unitmesh.devti.sketch.ui.LanguageSketchProvider
 import cc.unitmesh.devti.util.parser.CodeFence
+import com.intellij.ide.scratch.ScratchRootType
 import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataProvider
@@ -17,46 +24,63 @@ import com.intellij.openapi.editor.ex.FocusChangeListener
 import com.intellij.openapi.editor.ex.MarkupModelEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditor
+import com.intellij.openapi.fileEditor.FileEditorProvider
+import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.PsiManager
+import com.intellij.temporary.gui.block.whenDisposed
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.concurrency.annotations.RequiresReadLock
-import com.intellij.util.ui.JBUI
-import cc.unitmesh.devti.sketch.ui.LangSketch
-import cc.unitmesh.devti.sketch.ui.LanguageSketchProvider
-import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.ui.JBEmptyBorder
+import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import javax.swing.BoxLayout
+import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JPanel
 
 open class CodeHighlightSketch(
     open val project: Project,
     open val text: String,
-    private var ideaLanguage: Language?,
-    val editorLineThreshold: Int = 6
+    private var ideaLanguage: Language? = null,
+    val editorLineThreshold: Int = 6,
+    val fileName: String? = null
 ) : JBPanel<CodeHighlightSketch>(BorderLayout()), DataProvider, LangSketch, Disposable {
-    private val devinLineThreshold = 1
+    private val devinLineThreshold = 10
+    private val minDevinLineThreshold = 1
     private var isDevIns = false
 
-    private var textLanguage: String? = null
+    private var textLanguage: String? = if (ideaLanguage != null) ideaLanguage?.displayName else null
 
     var editorFragment: EditorFragment? = null
+    var previewEditor: FileEditor? = null
     private var hasSetupAction = false
 
     init {
-        if (text.isNullOrEmpty() && (ideaLanguage?.displayName != "Markdown" && ideaLanguage != PlainTextLanguage.INSTANCE)) {
-            initEditor(text)
+        if (text.isNotNullOrEmpty() && (ideaLanguage?.displayName != "Markdown" && ideaLanguage != PlainTextLanguage.INSTANCE)) {
+            initEditor(text, fileName)
         }
     }
 
-    fun initEditor(text: String) {
+    private fun String?.isNotNullOrEmpty(): Boolean {
+        return this != null && this.isNotEmpty()
+    }
+
+    fun initEditor(text: String, fileName: String? = null) {
         if (hasSetupAction) return
         hasSetupAction = true
 
-        val editor = createCodeViewerEditor(project, text, ideaLanguage, this)
+        val editor = if (ideaLanguage?.displayName == "Markdown") {
+            createMarkdownPreviewEditor(text) ?: createCodeViewerEditor(project, text, ideaLanguage, fileName, this)
+        } else {
+            createCodeViewerEditor(project, text, ideaLanguage, fileName, this)
+        }
 
         border = JBEmptyBorder(8)
         layout = BorderLayout(JBUI.scale(8), 0)
@@ -65,21 +89,37 @@ open class CodeHighlightSketch(
 
         if (ideaLanguage?.displayName == "DevIn") {
             isDevIns = true
-            editorFragment = EditorFragment(editor, devinLineThreshold)
+            editorFragment = EditorFragment(editor, devinLineThreshold, previewEditor)
         } else {
-            editorFragment = EditorFragment(editor, editorLineThreshold)
+            editorFragment = EditorFragment(editor, editorLineThreshold, previewEditor)
         }
 
         add(editorFragment!!.getContent(), BorderLayout.CENTER)
 
+        val isDeclarePackageFile = BuildSystemProvider.isDeclarePackageFile(fileName)
         if (textLanguage != null && textLanguage?.lowercase() != "markdown" && ideaLanguage != PlainTextLanguage.INSTANCE) {
-            setupActionBar(project, editor)
-            if (textLanguage?.lowercase() == "devin") {
-                editorFragment?.setCollapsed(true)
-            }
+            setupActionBar(project, editor, isDeclarePackageFile)
         } else {
             editor.backgroundColor = JBColor.PanelBackground
         }
+    }
+
+    private fun createMarkdownPreviewEditor(text: String): EditorEx? {
+        val editorProvider =
+            FileEditorProvider.EP_FILE_EDITOR_PROVIDER.extensionList.firstOrNull {
+                it.javaClass.simpleName == "MarkdownSplitEditorProvider"
+            }
+
+        val file = LightVirtualFile("shire-${System.currentTimeMillis()}.md", text)
+        val createEditor = editorProvider?.createEditor(project, file)
+
+        val preview = createEditor as? TextEditorWithPreview ?: return null
+        var editor = preview?.editor as? EditorEx ?: return null
+        configEditor(editor, project, file, false)
+//        previewEditor = preview.previewEditor
+//        previewEditor?.component?.isOpaque = true
+//        previewEditor?.component?.minimumSize = JBUI.size(0, 0)
+        return editor
     }
 
     override fun getViewText(): String {
@@ -93,58 +133,80 @@ open class CodeHighlightSketch(
         }
     }
 
-    override fun updateViewText(text: String) {
+    override fun updateViewText(text: String, complete: Boolean) {
         if (!hasSetupAction && text.isNotEmpty()) {
             initEditor(text)
         }
 
         WriteCommandAction.runWriteCommandAction(project) {
+            if (editorFragment?.editor?.isDisposed == true) return@runWriteCommandAction
+
             val document = editorFragment?.editor?.document
             val normalizedText = StringUtil.convertLineSeparators(text)
             document?.replaceString(0, document.textLength, normalizedText)
 
-            document?.lineCount?.let {
-                if (isDevIns && it > devinLineThreshold) {
-                    editorFragment?.updateExpandCollapseLabel()
-                } else if (it > editorLineThreshold) {
-                    editorFragment?.updateExpandCollapseLabel()
+            val lineCount = document?.lineCount ?: 0
+            if (lineCount > editorLineThreshold) {
+                editorFragment?.updateExpandCollapseLabel()
+            }
+
+            if (complete) {
+                if (isDevIns) {
+                    editorFragment?.resizeForNewThreshold(minDevinLineThreshold)
                 }
             }
         }
     }
 
     override fun onDoneStream(allText: String) {
-        if (ideaLanguage?.displayName == "DevIn") {
-            val parse = CodeFence.parse(editorFragment!!.editor.document.text)
-            var panel: JComponent? = null
-            when (parse.originLanguage) {
-                "diff", "patch" -> {
-                    val langSketch = LanguageSketchProvider.provide("patch")?.create(project, parse.text) ?: return
-                    panel = langSketch.getComponent()
-                    langSketch.onDoneStream(allText)
-                }
-                "html" -> {
-                    val langSketch = LanguageSketchProvider.provide("html")?.create(project, parse.text) ?: return
-                    panel = langSketch.getComponent()
-                    langSketch.onDoneStream(allText)
-                }
-                "bash", "shell" -> {
-                    val langSketch = LanguageSketchProvider.provide("shell")?.create(project, parse.text) ?: return
-                    panel = langSketch.getComponent()
-                    langSketch.onDoneStream(allText)
-                }
+        if (ideaLanguage?.displayName != "DevIn") return
+
+        val currentText = getViewText()
+        if (currentText.startsWith("/" + BuiltinCommand.WRITE.commandName + ":")) {
+            processWriteCommand(currentText)
+            /// get fileName after : and before \n
+            val fileName = currentText.lines().firstOrNull()?.substringAfter(":")
+            if (BuildSystemProvider.isDeclarePackageFile(fileName)) {
+                val ext = fileName?.substringAfterLast(".")
+                val parse = CodeFence.parse(editorFragment!!.editor.document.text)
+                val language = if (ext != null) CodeFence.findLanguage(ext) else ideaLanguage
+                val sketch = CodeHighlightSketch(project, parse.text, language, editorLineThreshold, fileName)
+                add(sketch, BorderLayout.SOUTH)
+                return
+            }
+        }
+
+        val parse = CodeFence.parse(editorFragment!!.editor.document.text)
+        var panel: JComponent? = null
+        when (parse.originLanguage) {
+            "diff", "patch" -> {
+                val langSketch = LanguageSketchProvider.provide("patch")?.create(project, parse.text) ?: return
+                panel = langSketch.getComponent()
+                langSketch.onDoneStream(allText)
             }
 
-            if (panel == null) return
+            "html" -> {
+                val langSketch = LanguageSketchProvider.provide("html")?.create(project, parse.text) ?: return
+                panel = langSketch.getComponent()
+                langSketch.onDoneStream(allText)
+            }
 
-            panel.border = JBEmptyBorder(4)
-            add(panel, BorderLayout.SOUTH)
-
-            editorFragment?.updateExpandCollapseLabel()
-
-            revalidate()
-            repaint()
+            "bash", "shell" -> {
+                val langSketch = LanguageSketchProvider.provide("shell")?.create(project, parse.text) ?: return
+                panel = langSketch.getComponent()
+                langSketch.onDoneStream(allText)
+            }
         }
+
+        if (panel == null) return
+
+        panel.border = JBEmptyBorder(4)
+        add(panel, BorderLayout.SOUTH)
+
+        editorFragment?.updateExpandCollapseLabel()
+
+        revalidate()
+        repaint()
     }
 
     override fun getComponent(): JComponent = this
@@ -158,6 +220,7 @@ open class CodeHighlightSketch(
             project: Project,
             text: String,
             ideaLanguage: Language?,
+            fileName: String?,
             disposable: Disposable,
         ): EditorEx {
             var editorText = text
@@ -181,7 +244,13 @@ open class CodeHighlightSketch(
                 editorText = newLines.joinToString("\n")
             }
 
-            val file = LightVirtualFile("shire.${ext}", language, editorText)
+            val file: VirtualFile = if (fileName != null) {
+//                ScratchRootType.getInstance().createScratchFile(project, fileName, language, editorText)
+//                    ?:
+                LightVirtualFile(fileName, language, editorText)
+            } else {
+                LightVirtualFile("shire.${ext}", language, editorText)
+            }
             val document: Document = file.findDocument() ?: throw IllegalStateException("Document not found")
 
             return createCodeViewerEditor(project, file, document, disposable, isShowLineNo)
@@ -189,16 +258,35 @@ open class CodeHighlightSketch(
 
         private fun createCodeViewerEditor(
             project: Project,
-            file: LightVirtualFile,
+            file: VirtualFile,
             document: Document,
             disposable: Disposable,
             isShowLineNo: Boolean? = false,
         ): EditorEx {
             val editor: EditorEx = ReadAction.compute<EditorEx, Throwable> {
-                EditorFactory.getInstance().createViewer(document, project, EditorKind.PREVIEW) as EditorEx
+                if (project.isDisposed) return@compute throw IllegalStateException("Project is disposed")
+
+                try {
+                    EditorFactory.getInstance().createViewer(document, project, EditorKind.PREVIEW) as EditorEx
+                } catch (e: Throwable) {
+                    throw e
+                }
+            }
+
+            disposable.whenDisposed {
+                EditorFactory.getInstance().releaseEditor(editor)
             }
 
             editor.setFile(file)
+            return configEditor(editor, project, file, isShowLineNo)
+        }
+
+        fun configEditor(
+            editor: EditorEx,
+            project: Project,
+            file: VirtualFile,
+            isShowLineNo: Boolean?
+        ): EditorEx {
             editor.setCaretEnabled(true)
 
             val highlighter = ApplicationManager.getApplication()
@@ -212,7 +300,7 @@ open class CodeHighlightSketch(
 
             val settings = editor.settings.also {
                 it.isDndEnabled = false
-                it.isLineNumbersShown = isShowLineNo ?: false
+                it.isLineNumbersShown = isShowLineNo == true
                 it.additionalLinesCount = 0
                 it.isLineMarkerAreaShown = false
                 it.isFoldingOutlineShown = false
@@ -230,6 +318,9 @@ open class CodeHighlightSketch(
                 }
 
                 override fun focusLost(focusEditor: Editor) {
+                    if (focusEditor.isDisposed) return
+                    if (editor.isDisposed) return
+
                     settings.isCaretRowShown = false
                     editor.markupModel.removeAllHighlighters()
                 }
@@ -246,6 +337,41 @@ open class CodeHighlightSketch(
 
         editorFragment = null
     }
+}
+
+/**
+ * Add Write Command Action
+ */
+private fun CodeHighlightSketch.processWriteCommand(currentText: String) {
+    val button = JButton("Write to file").apply {
+        preferredSize = JBUI.size(100, 30)
+
+        addActionListener {
+            val file = ScratchRootType.getInstance().createScratchFile(
+                project,
+                "DevIn-${System.currentTimeMillis()}.devin",
+                Language.findLanguageByID("DevIn"),
+                currentText
+            )
+
+            if (file == null) {
+                return@addActionListener
+            }
+
+            val psiFile = PsiManager.getInstance(project).findFile(file)!!
+
+            RunService.provider(project, file)
+                ?.runFile(project, file, psiFile, isFromToolAction = true)
+                ?: RunService.runInCli(project, psiFile)
+                ?: AutoDevNotifications.notify(project, "No run service found for ${file.name}")
+        }
+    }
+
+    val panel = JPanel()
+    panel.layout = BoxLayout(panel, BoxLayout.X_AXIS)
+    panel.add(button)
+
+    add(panel, BorderLayout.SOUTH)
 }
 
 @RequiresReadLock

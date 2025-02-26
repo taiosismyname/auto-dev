@@ -4,20 +4,18 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 interface ChatContextProvider {
     @RequiresReadLock
     fun isApplicable(project: Project, creationContext: ChatCreationContext): Boolean
 
     @RequiresBackgroundThread
-    suspend fun collect(project: Project, creationContext: ChatCreationContext): List<ChatContextItem>
+    fun collect(project: Project, creationContext: ChatCreationContext): List<ChatContextItem>
 
     companion object {
         val EP_NAME = ExtensionPointName<ChatContextProvider>("cc.unitmesh.chatContextProvider")
 
-        suspend fun collectChatContextList(
+        fun collectChatContextList(
             project: Project,
             chatCreationContext: ChatCreationContext,
         ): List<ChatContextItem> {

@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
@@ -31,7 +32,11 @@ class EditorPadding(private val editor: Editor, pad: Int) :
 }
 
 
-class EditorFragment(var editor: EditorEx, private val editorLineThreshold: Int = EDITOR_LINE_THRESHOLD) {
+class EditorFragment(
+    var editor: EditorEx,
+    private val editorLineThreshold: Int = EDITOR_LINE_THRESHOLD,
+    private val previewEditor: FileEditor?
+) {
     private val expandCollapseTextLabel: JBLabel = JBLabel("", 0).apply {
         isOpaque = true
         isVisible = false
@@ -48,27 +53,33 @@ class EditorFragment(var editor: EditorEx, private val editorLineThreshold: Int 
             override fun getPreferredSize(): Dimension {
                 val preferredSize = super.getPreferredSize()
                 if (editor.document.lineCount > editorLineThreshold && collapsed) {
-                    val lineHeight = editor.lineHeight
-                    val insets = editor.scrollPane.insets
-                    val editorMaxHeight = calculateMaxHeight(lineHeight, insets)
-                    return Dimension(preferredSize.width, editorMaxHeight)
+                    return calculatePreferredSize(preferredSize, this@EditorFragment.editorLineThreshold)
                 }
                 return preferredSize
             }
-
-            private fun calculateMaxHeight(lineHeight: Int, insets: Insets): Int {
-                val height = lineHeight * editorLineThreshold + insets.height
-                val headerHeight = editor.headerComponent?.preferredSize?.height ?: 0
-                val labelHeight = expandCollapseTextLabel.preferredSize.height
-                return height + headerHeight + labelHeight + insets.height
-            }
         }.apply {
             isOpaque = true
-//            addToLeft(EditorPadding(editor, 5))
-//            addToRight(EditorPadding(editor, 5))
-            addToCenter(editor.component)
+            if (previewEditor != null) {
+                addToCenter(previewEditor.component)
+            } else {
+                addToCenter(editor.component)
+            }
             addToBottom(expandCollapseTextLabel)
         }
+    }
+
+    private fun calculatePreferredSize(preferredSize: Dimension, lineThreshold: Int): Dimension {
+        val lineHeight = editor.lineHeight
+        val insets = editor.scrollPane.insets
+        val editorMaxHeight = calculateMaxHeight(lineHeight, insets, lineThreshold)
+        return Dimension(preferredSize.width, editorMaxHeight)
+    }
+
+    private fun calculateMaxHeight(lineHeight: Int, insets: Insets, lineThreshold: Int): Int {
+        val height = lineHeight * lineThreshold + insets.height
+        val headerHeight = editor.headerComponent?.preferredSize?.height ?: 0
+        val labelHeight = expandCollapseTextLabel.preferredSize.height
+        return height + headerHeight + labelHeight + insets.height
     }
 
     init {
@@ -99,6 +110,17 @@ class EditorFragment(var editor: EditorEx, private val editorLineThreshold: Int 
         expandCollapseTextLabel.isVisible = linesCount > editorLineThreshold
         expandCollapseTextLabel.text = if (collapsed) "More lines" else ""
         expandCollapseTextLabel.icon = if (collapsed) AllIcons.General.ChevronDown else AllIcons.General.ChevronUp
+    }
+
+    fun resizeForNewThreshold(newThreshold: Int) {
+        content.preferredSize = calculatePreferredSize(content.preferredSize, newThreshold)
+
+        expandCollapseTextLabel.isVisible = true
+        expandCollapseTextLabel.text = "More lines"
+        expandCollapseTextLabel.icon = AllIcons.General.ChevronDown
+
+        content.revalidate()
+        content.repaint()
     }
 
     companion object {

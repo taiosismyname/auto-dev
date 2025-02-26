@@ -44,5 +44,8 @@
                              implementationClass="cc.unitmesh.ide.javascript.provider.JavaScriptLivingDocumentation"/>
 
         <buildSystemProvider implementation="cc.unitmesh.ide.javascript.provider.JavaScriptBuildSystemProvider" />
+
+        <componentProvider implementation="cc.unitmesh.ide.javascript.bridge.ReactComponentViewProvider"/>
+        <toolchainFunctionProvider implementation="cc.unitmesh.ide.javascript.bridge.StylingViewFunctionProvider"/>
     </extensions>
 </idea-plugin>

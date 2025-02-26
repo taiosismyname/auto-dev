@@ -14,8 +14,6 @@ include(
 )
 
 include(
-    "local-bundle",
-
     "exts:ext-database",
     "exts:ext-terminal",
     // git4idea is the git plugin for IntelliJ IDEA, so we rename it to `exts-git`
@@ -25,6 +23,10 @@ include(
     "exts:ext-plantuml",
     "exts:ext-mermaid",
     "exts:ext-endpoints",
+    "exts:ext-vue",
+    "exts:ext-dependencies",
+    "exts:ext-container",
+    "exts:ext-openrewrite",
 
     // the Input Language support for AutoDev
     "exts:devins-lang"

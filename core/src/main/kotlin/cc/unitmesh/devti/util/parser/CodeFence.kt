@@ -1,6 +1,5 @@
 package cc.unitmesh.devti.util.parser
 
-import ai.grazie.nlp.utils.length
 import com.intellij.lang.Language
 import com.intellij.openapi.fileTypes.PlainTextLanguage
 
@@ -17,11 +16,9 @@ class CodeFence(
         val devinEndRegex = Regex("</devin>")
 
         fun parse(content: String): CodeFence {
-            val markdownRegex = Regex("```([\\w#+\\s]*)")
-
+            val languageRegex = Regex("```([\\w#+ ]*)")
             val lines = content.lines()
 
-            // 检查是否存在 devin 开始标签
             val startMatch = devinStartRegex.find(content)
             if (startMatch != null) {
                 val endMatch = devinEndRegex.find(content)
@@ -45,7 +42,7 @@ class CodeFence(
 
             for (line in lines) {
                 if (!codeStarted) {
-                    val matchResult: MatchResult? = markdownRegex.find(line.trimStart())
+                    val matchResult: MatchResult? = languageRegex.find(line.trimStart())
                     if (matchResult != null) {
                         val substring = matchResult.groups[1]?.value
                         languageId = substring
@@ -61,8 +58,8 @@ class CodeFence(
 
             val trimmedCode = codeBuilder.trim().toString()
             val language = findLanguage(languageId ?: "")
-            val extension =
-                language.associatedFileType?.defaultExtension ?: lookupFileExt(languageId ?: "txt")
+            val extension = language.associatedFileType?.defaultExtension
+                ?: lookupFileExt(languageId ?: "txt")
 
             return if (trimmedCode.isEmpty()) {
                 CodeFence(language, "", codeClosed, extension, languageId)
@@ -74,10 +71,13 @@ class CodeFence(
         fun parseAll(content: String): List<CodeFence> {
             val codeFences = mutableListOf<CodeFence>()
             var currentIndex = 0
+            var content = content
+            if (content.contains("```devin\n")) {
+                content = preProcessDevinBlock(content)
+            }
 
             val startMatches = devinStartRegex.findAll(content)
             for (startMatch in startMatches) {
-                // 处理标签前的文本
                 if (startMatch.range.first > currentIndex) {
                     val beforeText = content.substring(currentIndex, startMatch.range.first)
                     if (beforeText.isNotEmpty()) {
@@ -85,15 +85,14 @@ class CodeFence(
                     }
                 }
 
-                // 处理 devin 标签内容
                 val searchRegion = content.substring(startMatch.range.first)
                 val endMatch = devinEndRegex.find(searchRegion)
                 val isComplete = endMatch != null
 
                 val devinContent = if (isComplete) {
-                    searchRegion.substring(startMatch.range.length, endMatch!!.range.first).trim()
+                    searchRegion.substring(startMatch.range.length(), endMatch!!.range.first).trim()
                 } else {
-                    searchRegion.substring(startMatch.range.length).trim()
+                    searchRegion.substring(startMatch.range.length()).trim()
                 }
 
                 codeFences.add(CodeFence(findLanguage("DevIn"), devinContent, isComplete, "devin", "DevIn"))
@@ -104,17 +103,39 @@ class CodeFence(
                 }
             }
 
-            // 处理最后剩余的内容
             if (currentIndex < content.length) {
                 val remainingContent = content.substring(currentIndex)
                 parseMarkdownContent(remainingContent, codeFences)
             }
 
-            return codeFences
+            return codeFences.filter { it.text.isNotEmpty() }
+        }
+
+        val devinRegexBlock = Regex("(?<=^|\\n)```devin\\n([\\s\\S]*?)\\n```\\n")
+        val normalCodeBlock = Regex("```([\\w#+ ]*)\\n")
+
+        fun preProcessDevinBlock(content: String): String {
+            var currentContent = content
+
+            val devinMatches = devinRegexBlock.findAll(content).toList()
+
+            for (match in devinMatches) {
+                var devinContent = match.groups[1]?.value ?: ""
+                if (normalCodeBlock.find(devinContent) != null) {
+                    if (!devinContent.trim().endsWith("```")) {
+                        devinContent += "\n```"
+                    }
+                }
+
+                val replacement = "\n<devin>\n$devinContent\n</devin>"
+                currentContent = currentContent.replace(match.value, replacement)
+            }
+
+            return currentContent
         }
 
         private fun parseMarkdownContent(content: String, codeFences: MutableList<CodeFence>) {
-            val regex = Regex("```([\\w#+\\s]*)")
+            val languageRegex = Regex("```([\\w#+ ]*)")
             val lines = content.lines()
 
             var codeStarted = false
@@ -124,11 +145,11 @@ class CodeFence(
 
             for (line in lines) {
                 if (!codeStarted) {
-                    val matchResult = regex.find(line.trimStart())
+                    val matchResult = languageRegex.find(line.trimStart())
                     if (matchResult != null) {
                         if (textBuilder.isNotEmpty()) {
                             val textBlock = CodeFence(
-                                findLanguage("markdown"), textBuilder.trim().toString(), true, "txt"
+                                findLanguage("markdown"), textBuilder.trim().toString(), true, "md"
                             )
                             lastTxtBlock = textBlock
                             codeFences.add(textBlock)
@@ -144,10 +165,10 @@ class CodeFence(
                     if (line.startsWith("```")) {
                         val codeContent = codeBuilder.trim().toString()
                         val codeFence = CodeFence(
-                            findLanguage(languageId ?: ""),
+                            findLanguage(languageId ?: "markdown"),
                             codeContent,
                             true,
-                            lookupFileExt(languageId ?: "txt"),
+                            lookupFileExt(languageId ?: "md"),
                             languageId
                         )
                         codeFences.add(codeFence)
@@ -161,29 +182,22 @@ class CodeFence(
                 }
             }
 
-            // 处理最后的文本内容
             if (textBuilder.isNotEmpty()) {
-                val textBlock = CodeFence(
-                    findLanguage("markdown"), 
-                    textBuilder.trim().toString(), 
-                    true, 
-                    "txt"
-                )
+                val textBlock = CodeFence(findLanguage("markdown"), textBuilder.trim().toString(), true, "md")
                 codeFences.add(textBlock)
             }
 
-            // 处理未闭合的代码块
             if (codeStarted && codeBuilder.isNotEmpty()) {
+                val code = codeBuilder.trim().toString()
                 val codeFence = CodeFence(
-                    findLanguage(languageId ?: ""),
-                    codeBuilder.trim().toString(),
-                    false,
-                    lookupFileExt(languageId ?: "txt"),
-                    languageId
+                    findLanguage(languageId ?: "markdown"), code, false, lookupFileExt(languageId ?: "md"), languageId
                 )
                 codeFences.add(codeFence)
             }
         }
+
+        val languages = Language.getRegisteredLanguages()
+        val registeredLanguages = languages.filter { it.displayName.isNotEmpty() }
 
         /**
          * Searches for a language by its name and returns the corresponding [Language] object. If the language is not found,
@@ -203,11 +217,18 @@ class CodeFence(
                 else -> languageName
             }
 
-            val languages = Language.getRegisteredLanguages()
-            val registeredLanguages = languages.filter { it.displayName.isNotEmpty() }
-
             return registeredLanguages.find { it.displayName.equals(fixedLanguage, ignoreCase = true) }
                 ?: PlainTextLanguage.INSTANCE
+        }
+
+        fun findLanguageByExt(extension: String): Language? {
+            languages.forEach {
+                if (it.associatedFileType?.defaultExtension == extension) {
+                    return it
+                }
+            }
+
+            return null
         }
 
         fun lookupFileExt(languageId: String): String {
@@ -271,4 +292,8 @@ class CodeFence(
             }
         }
     }
+}
+
+private fun IntRange.length(): Int {
+    return (this.endInclusive - this.start) + 1
 }

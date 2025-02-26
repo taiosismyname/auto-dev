@@ -12,11 +12,17 @@ class RipgrepSearchInsCommand(
     override val commandName: BuiltinCommand = BuiltinCommand.RIPGREP_SEARCH
 
     override fun isApplicable(): Boolean {
-        return RipgrepSearcher.findRipgrepBinary() != null
+        return try {
+            RipgrepSearcher.findRipgrepBinary() != null
+        } catch (e: Exception) {
+            false
+        }
     }
 
     override suspend fun execute(): String? {
         val searchDirectory = myProject.baseDir!!.path
-        return RipgrepSearcher.searchFiles(myProject, searchDirectory, text ?: scope, null).get()
+        val searchContent = text ?: scope
+        val result = RipgrepSearcher.searchFiles(myProject, searchDirectory, searchContent, null).get()
+        return result ?: "No result found for /$commandName:$searchContent"
     }
 }

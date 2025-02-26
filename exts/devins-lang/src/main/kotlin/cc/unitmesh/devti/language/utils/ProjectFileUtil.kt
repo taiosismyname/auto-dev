@@ -1,7 +1,6 @@
 package cc.unitmesh.devti.language.utils
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.util.io.FileUtilRt
@@ -18,17 +17,8 @@ fun Project.lookupFile(path: String): VirtualFile? {
 
 fun Project.findFile(filename: String, caseSensitively: Boolean = true): VirtualFile? {
     ApplicationManager.getApplication().assertReadAccessAllowed()
-    val currentTask = ApplicationManager.getApplication().executeOnPooledThread<VirtualFile?> {
-        val searchedFiles = runReadAction {
-                FilenameIndex.getVirtualFilesByName(filename, caseSensitively, ProjectScope.getProjectScope(this))
-            }
-        return@executeOnPooledThread searchedFiles.firstOrNull()
-    }
-
-    return currentTask.get()
+    return FilenameIndex.getVirtualFilesByName(filename, ProjectScope.getContentScope(this)).firstOrNull()
 }
-
-// getVirtualFilesByNamesIgnoringCase
 
 fun VirtualFile.canBeAdded(): Boolean {
     if (!this.isValid || this.isDirectory) return false

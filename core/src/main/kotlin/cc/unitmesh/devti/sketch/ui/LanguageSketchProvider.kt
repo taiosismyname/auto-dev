@@ -4,7 +4,7 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 
 
-interface ExtensionLangSketch: LangSketch {
+interface ExtensionLangSketch : LangSketch {
     fun getExtensionName(): String
 }
 

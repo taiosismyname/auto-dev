@@ -29,7 +29,6 @@
         <module name="cc.unitmesh.go"/>
         <module name="cc.unitmesh.rust"/>
 <!--        <module name="cc.unitmesh.csharp"/>-->
-        <module name="cc.unitmesh.local"/>
 
         <!-- extension modules -->
         <module name="cc.unitmesh.database"/>
@@ -40,5 +39,8 @@
         <module name="cc.unitmesh.devti.language"/>
         <module name="cc.unitmesh.httpclient"/>
         <module name="cc.unitmesh.endpoints"/>
+        <module name="cc.unitmesh.vue"/>
+        <module name="cc.unitmesh.dependencies"/>
+        <module name="cc.unitmesh.container"/>
     </content>
 </idea-plugin>

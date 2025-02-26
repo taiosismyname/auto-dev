@@ -1,6 +1,6 @@
 package cc.unitmesh.devti.provider
 
-import cc.unitmesh.devti.runner.RunServiceTask
+import cc.unitmesh.devti.provider.runner.RunServiceTask
 import com.intellij.execution.RunManager
 import com.intellij.execution.RunnerAndConfigurationSettings
 import com.intellij.execution.actions.ConfigurationContext
@@ -59,10 +59,10 @@ interface RunService {
     fun createRunSettings(
         project: Project,
         virtualFile: VirtualFile,
-        testElement: PsiElement?,
+        psiElement: PsiElement?,
     ): RunnerAndConfigurationSettings? {
-        if (testElement != null) {
-            val settings = createDefaultConfigurations(project, testElement)
+        if (psiElement != null) {
+            val settings = createDefaultConfigurations(project, psiElement)
             if (settings != null) {
                 return settings
             }

@@ -1,13 +1,10 @@
 package cc.unitmesh.devti.settings.coder
 
 import cc.unitmesh.devti.AutoDevBundle
-import cc.unitmesh.devti.custom.schema.INLAY_PROMPTS_FILE_NAME
 import cc.unitmesh.devti.fullWidthCell
-import cc.unitmesh.devti.gui.component.JsonLanguageField
-import cc.unitmesh.devti.settings.LanguageChangedCallback.placeholder
-import cc.unitmesh.devti.settings.LanguageChangedCallback.jLabel
-import cc.unitmesh.devti.settings.LanguageChangedCallback.tips
-import cc.unitmesh.devti.settings.ResponseType
+import cc.unitmesh.devti.settings.locale.LanguageChangedCallback.jLabel
+import cc.unitmesh.devti.settings.locale.LanguageChangedCallback.tips
+import cc.unitmesh.devti.settings.miscs.ResponseType
 import cc.unitmesh.devti.settings.testLLMConnection
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.BoundConfigurable
@@ -29,6 +26,7 @@ class AutoDevCoderConfigurable(private val project: Project) : BoundConfigurable
     }
     private val inEditorCompletionCheckBox = JCheckBox()
     private val noChatHistoryCheckBox = JCheckBox()
+    private val trimCodeBeforeSend = JCheckBox()
 
     private val useCustomAIEngineWhenInlayCodeComplete = JCheckBox()
         .apply {
@@ -41,8 +39,6 @@ class AutoDevCoderConfigurable(private val project: Project) : BoundConfigurable
     private val customEngineRequestBodyFormatParam = JTextField()
     private val customEngineServerParam = JTextField()
     private val customEngineTokenParam = JPasswordField()
-    private val customEnginePrompt = JsonLanguageField(project, "", AutoDevBundle.messageWithLanguageFromLLMSetting("autodev.custom.prompt.placeholder"),  INLAY_PROMPTS_FILE_NAME)
-        .apply { placeholder("autodev.custom.prompt.placeholder", this, 2) }
 
     val settings = project.service<AutoDevCoderSettingService>()
     val state = settings.state.copy()
@@ -72,6 +68,15 @@ class AutoDevCoderConfigurable(private val project: Project) : BoundConfigurable
                     componentGet = { it.isSelected },
                     componentSet = { component, value -> component.isSelected = value },
                     prop = state::noChatHistory.toMutableProperty()
+                )
+        }
+
+        row(jLabel("settings.autodev.coder.trimCodeBeforeSend")) {
+            fullWidthCell(trimCodeBeforeSend)
+                .bind(
+                    componentGet = { it.isSelected },
+                    componentSet = { component, value -> component.isSelected = value },
+                    prop = state::trimCodeBeforeSend.toMutableProperty()
                 )
         }
 
@@ -171,16 +176,6 @@ class AutoDevCoderConfigurable(private val project: Project) : BoundConfigurable
             }
         }
 
-        row(jLabel("settings.autodev.coder.customEnginePrompt", 2)) {}
-        row {
-            fullWidthCell(customEnginePrompt)
-                .bind(
-                    componentGet = { it.text },
-                    componentSet = { component, value -> component.text = value },
-                    prop = state::customEnginePrompt.toMutableProperty()
-                )
-        }
-
         onApply {
             settings.modify {
                 it.recordingInLocal = state.recordingInLocal
@@ -194,9 +189,9 @@ class AutoDevCoderConfigurable(private val project: Project) : BoundConfigurable
                 it.customEngineRequestBodyFormatParam = state.customEngineRequestBodyFormatParam
                 it.customEngineServerParam = state.customEngineServerParam
                 it.customEngineTokenParam = state.customEngineTokenParam
-                it.customEnginePrompt = state.customEnginePrompt
                 it.noChatHistory = state.noChatHistory
                 it.enableRenameSuggestion = state.enableRenameSuggestion
+                it.trimCodeBeforeSend = state.trimCodeBeforeSend
             }
         }
     }

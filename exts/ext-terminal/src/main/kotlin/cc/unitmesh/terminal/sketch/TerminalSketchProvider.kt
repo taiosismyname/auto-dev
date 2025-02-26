@@ -6,6 +6,8 @@ import cc.unitmesh.devti.agent.view.WebViewWindow
 import cc.unitmesh.devti.sketch.SketchToolWindow
 import cc.unitmesh.devti.sketch.ui.ExtensionLangSketch
 import cc.unitmesh.devti.sketch.ui.LanguageSketchProvider
+import cc.unitmesh.devti.sketch.ui.code.CodeHighlightSketch
+import cc.unitmesh.devti.util.parser.CodeFence
 import com.intellij.execution.filters.Filter
 import com.intellij.icons.AllIcons
 import com.intellij.lang.Language
@@ -29,6 +31,8 @@ import com.intellij.util.ui.UIUtil
 import org.jetbrains.plugins.terminal.LocalTerminalDirectRunner
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
@@ -55,6 +59,8 @@ class TerminalSketchProvider : LanguageSketchProvider {
                 border = JBUI.Borders.empty(0, 10)
             }
 
+            val codeSketch = CodeHighlightSketch(project, content, CodeFence.findLanguage("bash"))
+
             val toolbarPanel = JPanel(BorderLayout()).apply {
                 add(titleLabel, BorderLayout.WEST)
                 add(toolbar.component, BorderLayout.EAST)
@@ -75,6 +81,7 @@ class TerminalSketchProvider : LanguageSketchProvider {
                 mainPanel = object : JPanel(VerticalLayout(JBUI.scale(0))) {
                     init {
                         add(toolbarWrapper)
+                        add(codeSketch.getComponent())
                         add(terminalWidget!!.component)
                     }
                 }
@@ -87,6 +94,14 @@ class TerminalSketchProvider : LanguageSketchProvider {
                 val clearAction = object : AnAction("Clear", "Clear Terminal", AllIcons.Actions.GC) {
                     override fun actionPerformed(e: AnActionEvent) {
                         terminalWidget?.terminalStarter?.sendString("clear\n", false)
+                    }
+                }
+
+                val copyAction = object : AnAction("Copy", "Copy text", AllIcons.Actions.Copy) {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+                        val selection = StringSelection(getViewText())
+                        clipboard.setContents(selection, null)
                     }
                 }
 
@@ -110,7 +125,7 @@ class TerminalSketchProvider : LanguageSketchProvider {
                     }
                 }
 
-                return listOf(clearAction, sendAction, popupAction)
+                return listOf(copyAction, clearAction, sendAction, popupAction)
             }
 
             private fun executePopup(terminalWidget: JBTerminalWidget?, project: Project): MouseAdapter =
@@ -147,35 +162,33 @@ class TerminalSketchProvider : LanguageSketchProvider {
 
             override fun getExtensionName(): String = "Terminal"
             override fun getViewText(): String = content
-            override fun updateViewText(text: String) {
+            override fun updateViewText(text: String, complete: Boolean) {
+                codeSketch.updateViewText(text, complete)
                 content = text
             }
 
             override fun onDoneStream(allText: String) {
                 var isAlreadySent = false
-                terminalWidget?.addMessageFilter(object : Filter {
-                    override fun applyFilter(line: String, entireLength: Int): Filter.Result? {
-                        if (isAlreadySent) return null
+                if (content.lines().size > 1) return
 
-                        Thread.sleep(1000)
-                        terminalWidget!!.terminalStarter?.sendString(content, false)
+                titleLabel.text = "Terminal - ($content)"
 
-                        ApplicationManager.getApplication().invokeLater {
-                            terminalWidget!!.revalidate()
-                            terminalWidget!!.repaint()
-                        }
+                ApplicationManager.getApplication().invokeLater {
+                    terminalWidget!!.terminalStarter?.sendString(content, true)
+                    terminalWidget!!.revalidate()
+                    terminalWidget!!.repaint()
+                }
 
-                        isAlreadySent = true
-                        return null
-                    }
-                })
+                isAlreadySent = true
             }
 
             override fun getComponent(): JComponent = mainPanel!!
 
             override fun updateLanguage(language: Language?, originLanguage: String?) {}
 
-            override fun dispose() {}
+            override fun dispose() {
+                codeSketch.dispose()
+            }
         }
     }
 
@@ -194,28 +207,26 @@ class FrontendWebViewServerFilter(val project: Project, val mainPanel: JPanel) :
     override fun applyFilter(line: String, entireLength: Int): Filter.Result? {
         if (isAlreadyStart) return null
 
-        if (line.contains("Local:")) {
-            val matchResult = regex.find(line)
-            if (matchResult != null) {
-                val url = matchResult.groupValues[1]
+        if (!line.contains("Local:")) return null
+        val matchResult = regex.find(line)
+        if (matchResult == null) return null
 
-                ApplicationManager.getApplication().invokeLater {
-                    val webViewWindow = WebViewWindow().apply {
-                        loadURL(url)
-                    }
-
-                    var additionalPanel = JPanel(BorderLayout()).apply {
-                        add(webViewWindow.component, BorderLayout.CENTER)
-                    }
-
-                    mainPanel.add(additionalPanel)
-                    mainPanel.revalidate()
-                    mainPanel.repaint()
-                }
-
-                isAlreadyStart = true
+        val url = matchResult.groupValues[1]
+        ApplicationManager.getApplication().invokeLater {
+            val webViewWindow = WebViewWindow().apply {
+                loadURL(url)
             }
+
+            var additionalPanel = JPanel(BorderLayout()).apply {
+                add(webViewWindow.component, BorderLayout.CENTER)
+            }
+
+            mainPanel.add(additionalPanel)
+            mainPanel.revalidate()
+            mainPanel.repaint()
         }
+
+        isAlreadyStart = true
 
         return null
     }

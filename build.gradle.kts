@@ -136,6 +136,9 @@ configure(subprojects - project(":exts")) {
                     kotlin.srcDirs("src/$platformVersion/main/kotlin")
                 }
                 test {
+                    if (platformVersion == 241 || platformVersion == 243) {
+                        kotlin.srcDirs("src/233/test/kotlin")
+                    }
                     kotlin.srcDirs("src/$platformVersion/test/kotlin")
                 }
             }
@@ -254,14 +257,16 @@ project(":") {
             pluginModule(implementation(project(":goland")))
             pluginModule(implementation(project(":rust")))
 
-            pluginModule(implementation(project(":local-bundle")))
             pluginModule(implementation(project(":exts:ext-database")))
             pluginModule(implementation(project(":exts:ext-git")))
             pluginModule(implementation(project(":exts:ext-http-client")))
             pluginModule(implementation(project(":exts:ext-terminal")))
             pluginModule(implementation(project(":exts:ext-mermaid")))
+            pluginModule(implementation(project(":exts:ext-vue")))
+            pluginModule(implementation(project(":exts:ext-dependencies")))
             pluginModule(implementation(project(":exts:ext-endpoints")))
             pluginModule(implementation(project(":exts:ext-plantuml")))
+            pluginModule(implementation(project(":exts:ext-container")))
             pluginModule(implementation(project(":exts:devins-lang")))
 
             testFramework(TestFrameworkType.Bundled)
@@ -276,14 +281,16 @@ project(":") {
         implementation(project(":goland"))
         implementation(project(":rust"))
 
-        implementation(project(":local-bundle"))
         implementation(project(":exts:ext-database"))
         implementation(project(":exts:ext-git"))
         implementation(project(":exts:ext-http-client"))
         implementation(project(":exts:ext-terminal"))
         implementation(project(":exts:ext-mermaid"))
+        implementation(project(":exts:ext-vue"))
+        implementation(project(":exts:ext-dependencies"))
         implementation(project(":exts:ext-plantuml"))
         implementation(project(":exts:ext-endpoints"))
+        implementation(project(":exts:ext-container"))
         implementation(project(":exts:devins-lang"))
 
         kover(project(":core"))
@@ -467,7 +474,7 @@ project(":pycharm") {
     dependencies {
         intellijPlatform {
             intellijIde(prop("ideaVersion"))
-            intellijPlugins(ideaPlugins + pycharmPlugins)
+            intellijPlugins(ideaPlugins + pycharmPlugins + prop("jupyterPlugin"))
         }
 
         implementation(project(":core"))
@@ -487,12 +494,26 @@ project(":java") {
     }
 }
 
+
+val cssPlugins = listOf(
+    "com.intellij.css",
+    "org.jetbrains.plugins.sass",
+    "org.jetbrains.plugins.less",
+    // Needed for tests-only
+    //"org.jetbrains.plugins.stylus:233.11799.172",
+//    "org.intellij.plugins.postcss",
+    // Needed for tests-only
+    //"com.jetbrains.plugins.Jade:$targetVersion",
+)
+
 project(":javascript") {
     dependencies {
         intellijPlatform {
             intellijIde(prop("ideaVersion"))
             intellijPlugins(ideaPlugins)
             intellijPlugins(javaScriptPlugins)
+            intellijPlugins(cssPlugins)
+//            intellijPlugins("intellij.webpack")
             testFramework(TestFrameworkType.Plugin.JavaScript)
         }
 
@@ -600,6 +621,30 @@ project(":exts:ext-mermaid") {
     }
 }
 
+project(":exts:ext-vue") {
+    dependencies {
+        intellijPlatform {
+            intellijIde(prop("ideaVersion"))
+            intellijPlugins(ideaPlugins + prop("vuePlugin"))
+            bundledPlugin("org.jetbrains.plugins.vue")
+        }
+
+        implementation(project(":core"))
+    }
+}
+
+project(":exts:ext-dependencies") {
+    dependencies {
+        intellijPlatform {
+            intellijIde(prop("ideaVersion"))
+            intellijPlugins(ideaPlugins)
+            bundledPlugin("org.jetbrains.security.package-checker")
+        }
+
+        implementation(project(":core"))
+    }
+}
+
 project(":exts:ext-plantuml") {
     dependencies {
         intellijPlatform {
@@ -611,23 +656,23 @@ project(":exts:ext-plantuml") {
     }
 }
 
-project(":exts:ext-endpoints") {
+project(":exts:ext-container") {
     dependencies {
         intellijPlatform {
             intellijIde(prop("ideaVersion"))
-            intellijPlugins(ideaPlugins + prop("endpointsPlugin"))
-            intellijPlugins(listOf("com.intellij.spring", "com.intellij.spring.mvc"))
+            intellijPlugins(ideaPlugins + prop("devContainerPlugin") + "Docker")
         }
 
         implementation(project(":core"))
     }
 }
 
-
-project(":local-bundle") {
+project(":exts:ext-endpoints") {
     dependencies {
         intellijPlatform {
             intellijIde(prop("ideaVersion"))
+            intellijPlugins(ideaPlugins + prop("endpointsPlugin") + prop("swaggerPlugin"))
+            intellijPlugins(listOf("com.intellij.spring", "com.intellij.spring.mvc"))
         }
 
         implementation(project(":core"))
@@ -639,6 +684,36 @@ project(":exts:ext-terminal") {
         intellijPlatform {
             intellijIde(prop("ideaVersion"))
             intellijPlugins(ideaPlugins + "org.jetbrains.plugins.terminal")
+        }
+
+        implementation(project(":core"))
+    }
+
+    sourceSets {
+        main {
+            resources.srcDirs("src/$platformVersion/main/resources")
+        }
+        test {
+            resources.srcDirs("src/$platformVersion/test/resources")
+        }
+    }
+    kotlin {
+        sourceSets {
+            main {
+                kotlin.srcDirs("src/$platformVersion/main/kotlin")
+            }
+            test {
+                kotlin.srcDirs("src/$platformVersion/test/kotlin")
+            }
+        }
+    }
+}
+
+project(":exts:ext-openrewrite") {
+    dependencies {
+        intellijPlatform {
+            intellijIde(prop("ideaVersion"))
+            intellijPlugins(ideaPlugins + prop("openWritePlugin"))
         }
 
         implementation(project(":core"))

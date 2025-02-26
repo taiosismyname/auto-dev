@@ -12,8 +12,10 @@ import com.intellij.openapi.command.UndoConfirmationPolicy
 import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.diff.impl.patch.PatchReader
 import com.intellij.openapi.diff.impl.patch.TextFilePatch
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorProvider
+import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.vcs.changes.patch.AbstractFilePatchInProgress
@@ -22,10 +24,12 @@ import com.intellij.openapi.vcs.changes.patch.MatchPatchPaths
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.LightVirtualFile
+import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.util.containers.MultiMap
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -55,33 +59,66 @@ class DiffLangSketch(private val myProject: Project, private var patchContent: S
 
         ApplicationManager.getApplication().invokeLater {
             if (filePatches.isEmpty()) {
-                AutoDevNotifications.error(myProject, "PatchProcessor: no patches found")
-                return@invokeLater
-            }
+                val msg = "PatchProcessor: no valid patches found, please check the patch content"
+                AutoDevNotifications.error(myProject, msg)
+
+                val repairButton = JButton("Repair").apply {
+                    icon = AllIcons.Actions.IntentionBulb
+                    toolTipText = "Try to repair the patch content"
+
+                    val editor = tryGetEditor()
+                    if (editor == null) {
+                        AutoDevNotifications.error(myProject, "Failed to get editor")
+                        return@apply
+                    }
+
+                    addActionListener {
+                        applyDiffRepairSuggestion(myProject, editor, editor.document.text, patchContent)
+                    }
+                }
+
+                val actionPanel = Box.createHorizontalBox()
+                actionPanel.add(Box.createHorizontalGlue())
+
+                mainPanel.add(actionPanel)
+
+                return@invokeLater            }
 
             filePatches.forEachIndexed { _, patch ->
                 val diffPanel = when {
                     patch.beforeFileName != null -> {
                         val originFile = myProject.findFile(patch.beforeFileName!!) ?: return@forEachIndexed
-                        SingleFileDiffView(myProject, originFile, patch, ::handleViewDiffAction)
+                        SingleFileDiffSketch(myProject, originFile, patch, ::handleViewDiffAction)
                     }
 
                     patch.afterFileName != null -> {
                         val content = patch.singleHunkPatchText
                         val virtualFile = LightVirtualFile(patch.afterFileName!!, content)
-                        SingleFileDiffView(myProject, virtualFile, patch, ::handleViewDiffAction)
+                        SingleFileDiffSketch(myProject, virtualFile, patch, ::handleViewDiffAction)
                     }
 
                     else -> {
                         val content = patch.singleHunkPatchText
                         val virtualFile = LightVirtualFile("ErrorPatchFile", content)
-                        SingleFileDiffView(myProject, virtualFile, patch, ::handleViewDiffAction)
+                        SingleFileDiffSketch(myProject, virtualFile, patch, ::handleViewDiffAction)
                     }
                 }
 
                 mainPanel.add(diffPanel.getComponent())
             }
         }
+    }
+
+    private fun tryGetEditor(): Editor? {
+        var defaultEditor = FileEditorManager.getInstance(myProject).selectedTextEditor ?: return null
+
+        val fileRegex = Regex("/patch:(.*)")
+        val matchResult = fileRegex.find(patchContent)
+        val filePath = matchResult?.groupValues?.get(1) ?: ""
+        val virtualFile = myProject.findFile(filePath) ?: return defaultEditor
+        val fileEditor = FileEditorManager.getInstance(myProject).getSelectedEditor(virtualFile) as? TextEditor
+
+        return fileEditor?.editor ?: defaultEditor
     }
 
     private fun createHeaderAction(): JComponent {
@@ -161,7 +198,7 @@ class DiffLangSketch(private val myProject: Project, private var patchContent: S
 
     override fun getExtensionName(): String = "patch"
     override fun getViewText(): String = patchContent
-    override fun updateViewText(text: String) {
+    override fun updateViewText(text: String, complete: Boolean) {
         this.patchContent = text
     }
 

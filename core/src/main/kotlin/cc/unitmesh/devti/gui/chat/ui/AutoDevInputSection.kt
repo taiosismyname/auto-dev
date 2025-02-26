@@ -2,7 +2,7 @@ package cc.unitmesh.devti.gui.chat.ui
 
 import cc.unitmesh.devti.AutoDevBundle
 import cc.unitmesh.devti.AutoDevIcons
-import cc.unitmesh.devti.agent.configurable.customAgentSetting
+import cc.unitmesh.devti.settings.customize.customizeSetting
 import cc.unitmesh.devti.agent.model.CustomAgentConfig
 import cc.unitmesh.devti.agent.model.CustomAgentState
 import cc.unitmesh.devti.llms.tokenizer.Tokenizer
@@ -19,6 +19,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
@@ -144,7 +145,7 @@ class AutoDevInputSection(private val project: Project, val disposable: Disposab
         })
         layoutPanel.setOpaque(false)
 
-        if (project.customAgentSetting.enableCustomRag && showAgent) {
+        if (project.customizeSetting.enableCustomRag && showAgent) {
             customRag = ComboBox(MutableCollectionComboBoxModel(loadRagApps()))
             customRag.renderer = SimpleListCellRenderer.create { label: JBLabel, value: CustomAgentConfig?, _: Int ->
                 if (value != null) {
@@ -225,11 +226,8 @@ class AutoDevInputSection(private val project: Project, val disposable: Disposab
         elementsList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         elementsList.layoutOrientation = JList.HORIZONTAL_WRAP
         elementsList.visibleRowCount = 2
-        elementsList.cellRenderer = RelatedFileListCellRenderer()
+        elementsList.cellRenderer = RelatedFileListCellRenderer(project)
         elementsList.setEmptyText("")
-
-        // 假设 elementsList 是某个容器的子组件，你需要将 scrollPane 添加到该容器中
-        // 例如：parentContainer.add(scrollPane)
 
         elementsList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
@@ -361,7 +359,7 @@ class AutoDevInputSection(private val project: Project, val disposable: Disposab
     }
 
     fun hasSelectedAgent(): Boolean {
-        if (!project.customAgentSetting.enableCustomRag) return false
+        if (!project.customizeSetting.enableCustomRag) return false
         if (customRag.selectedItem == null) return false
         return customRag.selectedItem != defaultRag
     }
@@ -380,8 +378,10 @@ class AutoDevInputSection(private val project: Project, val disposable: Disposab
     }
 
     fun moveCursorToStart() {
-        input.requestFocus()
-        input.caretModel.moveToOffset(0)
+        runInEdt {
+            input.requestFocus()
+            input.caretModel.moveToOffset(0)
+        }
     }
 
     private val maxHeight: Int
@@ -394,6 +394,7 @@ class AutoDevInputSection(private val project: Project, val disposable: Disposab
     val focusableComponent: JComponent get() = input
 
     private fun DefaultListModel<ModelWrapper>.addIfAbsent(vfile: VirtualFile, first: Boolean = false) {
+        if (!vfile.isValid || vfile.fileType.isBinary) return
         if (!isInProject(vfile, project)) return
         if (vfile is DiffVirtualFileBase) return
 

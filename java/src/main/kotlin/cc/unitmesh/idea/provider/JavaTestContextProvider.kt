@@ -29,7 +29,7 @@ open class JavaTestContextProvider : ChatContextProvider {
             |- Instead of using `@BeforeEach` methods for setup, include all necessary code initialization within each individual test method, do not write parameterized tests.
             |""".trimMargin()
 
-    override suspend fun collect(project: Project, creationContext: ChatCreationContext): List<ChatContextItem> {
+    override fun collect(project: Project, creationContext: ChatCreationContext): List<ChatContextItem> {
         val fileName = creationContext.sourceFile?.name
 
         val isSpringRelated = checkIsSpringRelated(creationContext)
@@ -103,11 +103,7 @@ open class JavaTestContextProvider : ChatContextProvider {
      * accordingly. Finally, it adds the rule to the projectJunitCache and returns the rule string.
      */
     protected fun junitRule(project: Project): String {
-        if (projectJunitCache.containsKey(project)) {
-            return projectJunitCache[project]!!
-        }
-
-        var rule = ""
+        var rule: List<String> = emptyList()
         val libraryData = prepareLibraryData(project)
         libraryData?.forEach {
             when (it.groupId) {
@@ -124,8 +120,7 @@ open class JavaTestContextProvider : ChatContextProvider {
             }
         }
 
-        projectJunitCache[project] = rule
-        return rule
+        return rule.distinct().joinToString("\n")
     }
 
     open fun isSpringRelated(element: PsiElement): Boolean {

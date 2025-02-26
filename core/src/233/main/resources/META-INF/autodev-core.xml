@@ -5,6 +5,7 @@
     <depends>com.intellij.modules.lang</depends>
 
     <depends optional="true" config-file="json-contrib.xml">com.intellij.modules.json</depends>
+    <depends optional="true" config-file="docker.xml">Docker</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="AutoDev.notification.group" displayType="STICKY_BALLOON" bundle="messages.AutoDevBundle"
@@ -19,12 +20,12 @@
                              id="cc.unitmesh.autodevDevOps"
                              bundle="messages.AutoDevBundle" key="settings.autodev.devops"/>
 
-        <projectConfigurable provider="cc.unitmesh.devti.agent.configurable.CoUnitToolConfigurableProvider"
+        <projectConfigurable provider="cc.unitmesh.devti.settings.customize.CustomizeConfigurableProvider"
                              parentId="cc.unitmesh.devti.settings.AutoDevSettingsConfigurable"
                              id="cc.unitmesh.counit"
-                             bundle="messages.AutoDevBundle" key="counit.agent.name"/>
+                             bundle="messages.AutoDevBundle" key="customize.title"/>
 
-        <projectConfigurable provider="cc.unitmesh.devti.settings.custom.TeamPromptsConfigurableProvider"
+        <projectConfigurable provider="cc.unitmesh.devti.settings.team.TeamPromptsConfigurableProvider"
                              parentId="cc.unitmesh.devti.settings.AutoDevSettingsConfigurable"
                              id="cc.unitmesh.promptLibrary"
                              bundle="messages.AutoDevBundle" key="settings.external.team.prompts.name"/>
@@ -85,7 +86,6 @@
 
     <extensions defaultExtensionNs="JavaScript.JsonSchema">
         <ProviderFactory implementation="cc.unitmesh.devti.custom.schema.AutoDevJsonSchemaProviderFactory"/>
-        <ProviderFactory implementation="cc.unitmesh.devti.custom.schema.AutoDevPromptJsonSchemaProviderFactory"/>
     </extensions>
 
     <extensionPoints>
@@ -193,10 +193,10 @@
         <!-- Lang Sketch Provider -->
         <extensionPoint qualifiedName="cc.unitmesh.langSketchProvider"
                         interface="cc.unitmesh.devti.sketch.ui.LanguageSketchProvider"
-                        dynamic="true" />
+                        dynamic="true"/>
         <extensionPoint qualifiedName="cc.unitmesh.sketchToolchainProvider"
                         interface="cc.unitmesh.devti.sketch.SketchToolchainProvider"
-                        dynamic="true" />
+                        dynamic="true"/>
 
         <extensionPoint qualifiedName="cc.unitmesh.relatedClassProvider"
                         beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
@@ -217,6 +217,11 @@
                         interface="cc.unitmesh.devti.provider.RevisionProvider"
                         dynamic="true">
         </extensionPoint>
+
+        <!--  Bridge -->
+        <extensionPoint qualifiedName="cc.unitmesh.componentProvider"
+                        interface="cc.unitmesh.devti.bridge.provider.ComponentViewProvider"
+                        dynamic="true"/>
     </extensionPoints>
 
     <applicationListeners>
@@ -248,6 +253,11 @@
 
         <langSketchProvider implementation="cc.unitmesh.devti.sketch.ui.patch.DiffLangSketchProvider"/>
         <langSketchProvider implementation="cc.unitmesh.devti.sketch.ui.webview.WebpageSketchProvider"/>
+        <langSketchProvider implementation="cc.unitmesh.devti.sketch.ui.openapi.OpenAPISketchProvider"/>
+
+        <toolchainFunctionProvider implementation="cc.unitmesh.devti.bridge.archview.ComponentViewFunctionProvider"/>
+        <toolchainFunctionProvider implementation="cc.unitmesh.devti.bridge.archview.ContainerViewFunctionProvider"/>
+        <toolchainFunctionProvider implementation="cc.unitmesh.devti.bridge.assessment.SccFunctionProvider"/>
     </extensions>
 
     <actions>
@@ -261,14 +271,14 @@
         <action id="cc.unitmesh.devti.inlayCompleteCode"
                 class="cc.unitmesh.devti.actions.completion.InlayCompleteCodeAction"
                 text="Inlay Complete Code (AutoDev)"
-                description="Inlay complete code!" >
+                description="Inlay complete code!">
             <keyboard-shortcut keymap="$default" first-keystroke="alt PERIOD"/>
             <add-to-group group-id="ShowIntentionsGroup" relative-to-action="ShowIntentionActions" anchor="after"/>
         </action>
         <action id="cc.unitmesh.devti.disposeInlayCompleteCode"
                 class="cc.unitmesh.devti.actions.completion.InlayCompleteCodeDisposedAction"
                 text="Disposed Inlay Complete Code"
-                description="Disposed Inlay complete code!" >
+                description="Disposed Inlay complete code!">
             <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
         </action>
 
@@ -335,6 +345,10 @@
 
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </action>
+        <group id="AutoDev.ToolWindow.Snippet.DependenciesToolbar">
+            <action id="AutoDev.ToolWindow.Snippet.DependenciesLabelAction"
+                    class="cc.unitmesh.devti.gui.snippet.AutoDevDependenciesLabelAction"/>
+        </group>
 
         <group id="AutoDev.ToolWindow.Snippet.Toolbar">
             <action id="AutoDev.ToolWindow.Snippet.LanguageLabelAction"
@@ -353,7 +367,7 @@
 
         <group id="AutoDev.ToolWindow.Chat.TitleActions">
             <action id="AutoDev.ToolWindow.NewChatAction" class="cc.unitmesh.devti.gui.toolbar.NewChatAction"/>
-<!--            <action id="AutoDev.ToolWindow.NewSketchAction" class="cc.unitmesh.devti.gui.toolbar.NewSketchAction"/>-->
+            <!--            <action id="AutoDev.ToolWindow.NewSketchAction" class="cc.unitmesh.devti.gui.toolbar.NewSketchAction"/>-->
         </group>
 
         <group id="AutoDev.ToolWindow.Message.Toolbar.Assistant">
@@ -383,7 +397,8 @@
                 icon="cc.unitmesh.devti.AutoDevIcons.AI_COPILOT"
                 class="cc.unitmesh.devti.actions.chat.AutoTestInMenuAction">
 
-            <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="ProjectViewPopupMenuRefactoringGroup" />
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="after"
+                          relative-to-action="ProjectViewPopupMenuRefactoringGroup"/>
             <add-to-group group-id="RefactoringMenu" anchor="last"/>
             <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
         </action>

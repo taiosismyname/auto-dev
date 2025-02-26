@@ -2,18 +2,22 @@ package cc.unitmesh.devti.inline
 
 import cc.unitmesh.devti.llms.LlmFactory
 import cc.unitmesh.devti.llms.cancelHandler
+import cc.unitmesh.devti.sketch.SketchProcessListener
 import cc.unitmesh.devti.sketch.SketchToolWindow
 import cc.unitmesh.devti.util.AutoDevCoroutineScope
 import com.intellij.icons.AllIcons
 import com.intellij.ide.KeyboardAwareFocusOwner
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.invokeLater
-import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorCustomElementRenderer
-import com.intellij.openapi.editor.Inlay
+import com.intellij.openapi.application.runInEdt
+import com.intellij.openapi.editor.*
+import com.intellij.openapi.editor.actionSystem.EditorActionHandler
+import com.intellij.openapi.editor.actionSystem.EditorActionManager
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.wm.IdeFocusManager
@@ -35,7 +39,7 @@ import javax.swing.*
 class AutoDevInlineChatPanel(val editor: Editor) : JPanel(GridBagLayout()), EditorCustomElementRenderer,
     Disposable {
     var inlay: Inlay<*>? = null
-    val inputPanel = AutoDevInlineChatInput(this, onSubmit = { input ->
+    val inputPanel = AutoDevInlineChatInput(this, onSubmit = { input, onCreated ->
         this.centerPanel.isVisible = true
         val project = editor.project!!
 
@@ -45,6 +49,7 @@ class AutoDevInlineChatPanel(val editor: Editor) : JPanel(GridBagLayout()), Edit
         val panelView = SketchToolWindow(project, editor)
         panelView.minimumSize = Dimension(800, 40)
         addToCenter(panelView)
+        onCreated(panelView) // Add process listener before onStart
 
         AutoDevCoroutineScope.scope(project).launch {
             val suggestion = StringBuilder()
@@ -62,6 +67,7 @@ class AutoDevInlineChatPanel(val editor: Editor) : JPanel(GridBagLayout()), Edit
             panelView.resize()
             panelView.onFinish(suggestion.toString())
         }
+        panelView
     })
     private var centerPanel: JPanel = JPanel(BorderLayout())
     private var container: Container? = null
@@ -172,9 +178,15 @@ class AutoDevInlineChatPanel(val editor: Editor) : JPanel(GridBagLayout()), Edit
 
 class AutoDevInlineChatInput(
     val autoDevInlineChatPanel: AutoDevInlineChatPanel,
-    val onSubmit: (String) -> Unit,
+    val onSubmit: (String, (SketchToolWindow) -> Unit) -> SketchToolWindow,
 ) : JPanel(GridBagLayout()), Disposable {
     private val textArea: JBTextArea
+
+    private var view: SketchToolWindow? = null
+
+    private var btnPresentation: Presentation? = null
+
+    private var escHandler: EscHandler? = null
 
     init {
         layout = BorderLayout()
@@ -195,6 +207,7 @@ class AutoDevInlineChatInput(
         // escape to close
         textArea.actionMap.put("escapeAction", object : AbstractAction() {
             override fun actionPerformed(e: ActionEvent) {
+                cancel()
                 AutoDevInlineChatService.getInstance().closeInlineChat(autoDevInlineChatPanel.editor)
             }
         })
@@ -213,22 +226,56 @@ class AutoDevInlineChatInput(
             }
         })
         textArea.inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK), "newlineAction")
+        escHandler = EscHandler(autoDevInlineChatPanel.editor, {
+            cancel()
+            AutoDevInlineChatService.getInstance().closeInlineChat(autoDevInlineChatPanel.editor)
+            escHandler?.dispose()
+        })
 
-        val submitPresentation = Presentation("Submit")
-        submitPresentation.icon = AllIcons.Actions.Execute
-        val submitButton = ActionButton(
-            DumbAwareAction.create { submit() },
-            submitPresentation, "", Dimension(40, 20)
+        btnPresentation = Presentation()
+        setPresentationTextAndIcon(false)
+        val actionBtn = ActionButton(
+            DumbAwareAction.create { onEnter() },
+            btnPresentation, "", Dimension(40, 20)
         )
 
         add(textArea)
-        add(submitButton, BorderLayout.EAST)
+        add(actionBtn, BorderLayout.EAST)
+    }
+
+    private fun onEnter() {
+        if (btnPresentation?.icon == AllIcons.Actions.Execute) submit()
+        else if (btnPresentation?.icon == AllIcons.Actions.Suspend) cancel()
     }
 
     private fun submit() {
+        view?.cancel("Cancel by resubmit") // Or not allowed to submit at runtime
         val trimText = textArea.text.trim()
         textArea.text = ""
-        onSubmit(trimText)
+        view = onSubmit(trimText) {
+            it.addProcessListener(object : SketchProcessListener {
+                override fun onBefore() = setPresentationTextAndIcon(true)
+                override fun onAfter() = setPresentationTextAndIcon(false)
+            })
+        }
+
+    }
+
+    private fun cancel() {
+        view?.cancel("Cancel")
+        setPresentationTextAndIcon(false)
+    }
+
+    private fun setPresentationTextAndIcon(running: Boolean) {
+        runInEdt {
+            if (running) {
+                btnPresentation?.text = "Cancel"
+                btnPresentation?.icon = AllIcons.Actions.Suspend
+            } else {
+                btnPresentation?.text = "Submit"
+                btnPresentation?.icon = AllIcons.Actions.Execute
+            }
+        }
     }
 
     fun getInputComponent(): Component = textArea
@@ -244,4 +291,38 @@ fun <T : JComponent> Cell<T>.fullWidth(): Cell<T> {
 
 fun <T : JComponent> Cell<T>.fullHeight(): Cell<T> {
     return this.align(AlignY.FILL)
+}
+
+
+/**
+ * 监听编辑器的 ESC 按键事件，并在非选中或多光标等需要取消前一状态的状态下执行 [action]
+ */
+class EscHandler(private val targetEditor: Editor, private val action: () -> Unit) : EditorActionHandler(), Disposable {
+
+    private var oldHandler: EditorActionHandler? = null
+
+    init {
+        val editorManager = EditorActionManager.getInstance()
+        oldHandler = editorManager.getActionHandler(IdeActions.ACTION_EDITOR_ESCAPE)
+        editorManager.setActionHandler(IdeActions.ACTION_EDITOR_ESCAPE, this)
+    }
+
+    override fun doExecute(
+        editor: Editor,
+        caret: Caret?,
+        context: DataContext,
+    ) {
+        val caretModel: CaretModel = editor.caretModel
+        if (editor == targetEditor || caretModel.caretCount > 1 || caretModel.allCarets.any { it.hasSelection() }) {
+            action()
+        } else {
+            oldHandler?.execute(editor, caret, context)
+        }
+    }
+
+    override fun dispose() {
+        oldHandler?.let {
+            EditorActionManager.getInstance().setActionHandler(IdeActions.ACTION_EDITOR_ESCAPE, it)
+        }
+    }
 }

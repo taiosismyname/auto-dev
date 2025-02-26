@@ -77,8 +77,10 @@ open class JavaCodeModifier : CodeModifier {
         val classEndOffset = runReadAction { lastClass.textRange.endOffset }
 
         val psiFile = try {
-            PsiFileFactory.getInstance(project)
-                .createFileFromText("Test.java", JavaLanguage.INSTANCE, trimCode)
+            runReadAction {
+                PsiFileFactory.getInstance(project)
+                    .createFileFromText("Test.java", JavaLanguage.INSTANCE, trimCode)
+            }
         } catch (e: Throwable) {
             log.warn("Failed to create file from text: $trimCode", e)
             null
@@ -138,6 +140,11 @@ open class JavaCodeModifier : CodeModifier {
             try {
                 rootElement.add(newTestMethod)
             } catch (e: Throwable) {
+                if (newTestMethod == null) {
+                    log.error("Failed to create method from text: $code")
+                    return@runWriteCommandAction
+                }
+
                 val classEndOffset = rootElement.textRange.endOffset
                 val document = PsiDocumentManager.getInstance(project).getDocument(rootElement.containingFile)
                 document?.insertString(classEndOffset - 1, "\n    ")

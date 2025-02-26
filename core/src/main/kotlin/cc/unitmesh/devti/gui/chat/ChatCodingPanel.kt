@@ -17,7 +17,7 @@ import cc.unitmesh.devti.gui.chat.welcome.WelcomePanel
 import cc.unitmesh.devti.provider.ContextPrompter
 import cc.unitmesh.devti.provider.devins.LanguageProcessor
 import cc.unitmesh.devti.settings.AutoDevSettingsState
-import cc.unitmesh.devti.settings.LanguageChangedCallback.componentStateChanged
+import cc.unitmesh.devti.settings.locale.LanguageChangedCallback.componentStateChanged
 import com.intellij.lang.html.HTMLLanguage
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
@@ -259,15 +259,17 @@ class ChatCodingPanel(private val chatCodingService: ChatCodingService, val disp
             messageView.updateContent(text)
         }
 
-        if (delaySeconds.isNotEmpty()) {
+        if (delaySeconds.isNotBlank()) {
             val elapsedTime = System.currentTimeMillis() - startTime
             withContext(Dispatchers.IO) {
-                val delaySec = delaySeconds.toLong()
-                val remainingTime = maxOf(delaySec * 1000 - elapsedTime, 0)
-                delay(remainingTime)
+                delaySeconds.toLongOrNull()?.let {
+                    val remainingTime = maxOf(it * 1000 - elapsedTime, 0)
+                    delay(remainingTime)
+                }
             }
         }
 
+//        messageView.reRenderAssistantOutput()
         return text
     }
 

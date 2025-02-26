@@ -1,0 +1,9 @@
+<idea-plugin package="cc.unitmesh.container">
+    <!--suppress PluginXmlValidity -->
+    <dependencies>
+        <plugin id="org.jetbrains.plugins.docker.gateway"/>
+        <plugin id="Docker"/>
+    </dependencies>
+
+    <!--  Since limit of Docker, we move implementation to docker-contrib.xml  -->
+</idea-plugin>

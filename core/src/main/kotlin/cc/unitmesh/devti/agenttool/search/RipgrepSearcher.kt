@@ -30,7 +30,11 @@ object RipgrepSearcher {
     ): CompletableFuture<String?> {
         return CompletableFuture.supplyAsync<String> {
             try {
-                val rgPath = findRipgrepBinary() ?: throw IOException("Ripgrep binary not found")
+                val rgPath = findRipgrepBinary()
+                if (rgPath == null) {
+                    return@supplyAsync "Ripgrep binary not found, try install it first: https://github.com/BurntSushi/ripgrep?tab=readme-ov-file#installation"
+                }
+
                 val results = executeRipgrep(
                     project,
                     rgPath,
@@ -50,6 +54,14 @@ object RipgrepSearcher {
     fun findRipgrepBinary(): Path? {
         val osName = System.getProperty("os.name").lowercase(Locale.getDefault())
         val binName = if (osName.contains("win")) "rg.exe" else "rg"
+
+        // try get from /usr/local/bin/rg if macos
+        if (osName.contains("mac")) {
+            val path = Paths.get("/usr/local/bin/rg")
+            if (path.toFile().exists()) {
+                return path
+            }
+        }
 
         val pb = ProcessBuilder("which", binName)
         val process = pb.start()
@@ -121,7 +133,7 @@ object RipgrepSearcher {
         }
 
         for (entry in grouped.entries) {
-            output.append("### filepath: ").append(entry.key).append("\n")
+            output.append("## filepath: ").append(entry.key).append("\n")
             val filePath = Paths.get(basePath, entry.key)
             val content = filePath.toFile().readLines()
 
